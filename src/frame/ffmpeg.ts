@@ -1,8 +1,7 @@
 import prism from "prism-media";
-import type { Duplex } from "node:stream";
 import { FramePoller, create_streamed_frame_poller } from "./poller.js";
 
-export function create_stream(input: string): Duplex {
+export function create_ffmpeg_opus_stream(input: string): prism.opus.Encoder {
     const args = [
         "-i", input,
         "-analyzeduration", "0",
@@ -28,8 +27,10 @@ export function create_stream(input: string): Duplex {
 }
 
 export function create_ffmpeg_frame_poller(input: string): FramePoller {
-    const readable = create_stream(input);
-    console.log("voice - created ffmpeg stream");
+    const readable = create_ffmpeg_opus_stream(input);
+    readable.setBitrate(512000);
+
+    console.log("[ffmpeg] created ffmpeg stream");
 
     return create_streamed_frame_poller(readable);
 }

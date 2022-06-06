@@ -4,20 +4,23 @@ import { get_data, send } from "./tools/ws.js";
 import { Address, holepunch } from "./packet/udp.js";
 import { create_frame_sender } from "./frame/sender.js";
 import { strategies } from "./secure/encryption.js";
-import { create_stream } from "./frame/ffmpeg.js";
+// import { create_echoing_frame_poller } from "./frame/echo.js";
+import { create_ffmpeg_opus_stream } from "./frame/ffmpeg.js";
+import { create_echoing_frame_poller } from "./frame/echo.js";
 
-const encryption_mode = "xsalsa20_poly1305_lite";
+const encryption_mode = "xsalsa20_poly1305";
 
 export function connect_voice(voice: Voice) {
-    const gateway = new WS(`wss://${voice.server.endpoint}/?v=4`);
+    const connection: VoiceConnection = {
+        gateway: new WS(`wss://${voice.server.endpoint}/?v=4`),
+        sock: createSocket("udp4"),
+        speaking_map: new Map(),
+    }
 
-    let udp_sock: Socket = createSocket("udp4"),
-        remote: Address, 
-        ssrc: number;
-
-    gateway.onopen = () => {
+    let ssrc: number;
+    connection.gateway.onopen = () => {
         console.log("[discord/voice] connected, sending identify");
-        send(gateway, {
+        send(connection.gateway, {
             op: 0,
             d: {
                 session_id: voice.state.session_id,
@@ -28,21 +31,21 @@ export function connect_voice(voice: Voice) {
         }, "discord/voice");
     };
 
-    gateway.onclose = (evt) => {
+    connection.gateway.onclose = (evt) => {
         console.error("[discord/voice]", evt.code, evt.reason, evt.wasClean);
         process.exit(1);
     }
 
-    gateway.onmessage = async ({ data }) => {
+    connection.gateway.onmessage = async ({ data }) => {
         const payload = JSON.parse(get_data(data).toString());
         console.debug("[discord/voice] >>>", JSON.stringify(payload));
 
         switch (payload.op) {
             case 2:
                 ssrc = payload.d.ssrc;
-                remote = { ip: payload.d.ip, port: payload.d.port };
+                connection.remote = { ip: payload.d.ip, port: payload.d.port };
 
-                const { ip, port } = await holepunch(udp_sock, payload.d.ssrc, payload.d);
+                const { ip, port } = await holepunch(connection.sock, payload.d.ssrc, payload.d);
                 select_protocol(ip, port);
                 heartbeat();
 
@@ -54,25 +57,46 @@ export function connect_voice(voice: Voice) {
                 console.log("[discord/voice] received heartbeat ACK");
                 break;
             case 4:
-                const secret_key = Buffer.from(payload.d.secret_key);
-                const sender = create_frame_sender(
-                    ssrc,
-                    create_stream(process.env.FFMPEG_INPUT!),
-                );
+                const secret = Buffer.from(payload.d.secret_key)
+                switch (process.env.TEST_TYPE) {
+                    case "ffmpeg":
+                        const ffmpeg = create_ffmpeg_opus_stream(process.env.FFMPEG_INPUT!)
+                        ffmpeg.setBitrate(512000)
 
-                await sender.start({ remote, sock: udp_sock, gateway }, strategies[encryption_mode]?.(secret_key));
+                        const ffmpeg_sender = create_frame_sender(
+                            ssrc,
+                            ffmpeg
+                        );
+
+                        await ffmpeg_sender.start(connection, strategies[encryption_mode]?.(secret)!);
+                        break;
+                    case "echo":
+                        const encryption_strategy = strategies[encryption_mode]?.(secret)!
+                        const echo_sender = create_frame_sender(
+                            ssrc,
+                            create_echoing_frame_poller(connection, encryption_strategy),
+                        );
+
+                        await echo_sender.start(connection, encryption_strategy);
+                        break;
+                }
+
+
+                break;
+            case 5:
+                connection.speaking_map.set(payload.d.ssrc, payload.d.user_id);
                 break;
         }
     };
 
     function heartbeat() {
-        send(gateway, { op: 3, d: Date.now() }, "discord/voice")
+        send(connection.gateway, { op: 3, d: Date.now() }, "discord/voice")
     }
 
     function select_protocol(address: string, port: number) {
         console.log("[discord/voice] peformed holepunch: %s:%d", address, port);
 
-        send(gateway, {
+        send(connection.gateway, {
             op: 1,
             d: {
                 protocol: "udp",
@@ -104,5 +128,6 @@ interface VoiceServer {
 export interface VoiceConnection {
     sock: Socket;
     gateway: WS;
-    remote: Address;
+    remote?: Address;
+    speaking_map: Map<number, string>;
 }

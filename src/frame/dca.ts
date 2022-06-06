@@ -8,7 +8,7 @@ import { create_streamed_frame_poller } from "./poller.js";
 const MAGIC_BYTES = [ 68, 67, 65 ];
 
 export function read_dca_packet(cursor: ReadonlyBufferCursor): DcaPacket {
-    const length = cursor.read_uint16_le();
+    const length = cursor.read_uint_le(2);
     const bytes = cursor.read_bytes(length);
     return { length, bytes }
 }
@@ -24,7 +24,7 @@ export function read_dca_header(dca: ReadonlyBufferCursor): DcaHeader {
     const version = +String.fromCharCode(version_bytes[3]);
     switch (version) {
         case 1: // DCA1
-            const json_length = dca.read_uint32_le();
+            const json_length = dca.read_uint_le(4);
             const json_bytes = dca.read_bytes(json_length);
             return JSON.parse(json_bytes.toString());
         default:

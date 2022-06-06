@@ -25,7 +25,7 @@ export class ReadonlyBufferCursor {
      * @param {number} n the number of bytes to read.
      * @returns {ReadonlyBufferCursor} a view containing the bytes that were read.
      */
-    read_bytes(n: number): Buffer {
+    read_bytes(n: number = this.data.length - this.position): Buffer {
         const buffer = Buffer.alloc(n);
         this.data.copy(buffer, 0, this.position, this.position + n);
         this.position += n;
@@ -34,31 +34,40 @@ export class ReadonlyBufferCursor {
     }
 
     /**
-     * Reads an unsigned 16-bit integer from the underlying buffer. (lil-endian)
+     * Reads an unsigned {@link size n}-bit integer from the underlying buffer. (big-endian)
+     *
+     * @param size the number of bits to read.
      * @returns {number}
      */
-    read_uint16_le(): number {
-        this.require_bytes(2);
-
-        const int = this.data.readUint16LE(this.position);
-        this.position += 2;
-
-        return int;
+    read_uint_be(size: number): number {
+        this.require_bytes(size);
+        const short = this.data.readUintBE(this.position, size);
+        this.position += size;
+        return short;
     }
 
     /**
-     * Reads an unsigned 32-bit integer from the underlying buffer. (lil-endian)
+     * Reads an unsigned {@link bytes n}-bit integer from the underlying buffer. (lil-endian)
+     *
+     * @param bytes the number of bits to read.
      * @returns {number}
      */
-    read_uint32_le(): number {
-        this.require_bytes(4);
-
-        const int = this.data.readUint32LE(this.position);
-        this.position += 4;
-
-        return int;
+    read_uint_le(bytes: number): number {
+        this.require_bytes(bytes);
+        const short = this.data.readUintLE(this.position, bytes);
+        this.position += bytes;
+        return short;
     }
 
+    resize(start = 0, end = this.data.length) {
+        // check if the start and end is within bounds and are in the correct order
+        if (start >= 0 && end <= this.data.length) {
+            this.data = this.data.subarray(start, end);
+            return true;
+        }
+
+        return false;
+    }
 
     private require_bytes(n: number) {
         if (this.data.length < this.position + n) {
