@@ -4,7 +4,6 @@ import { RtpHeader, write_rtp_header } from "../packet/rtp.js";
 // @ts-ignore
 import { crypto_secretbox_easy, crypto_secretbox_open_easy, randombytes_buf } from "@devtomio/sodium";
 import type { ReadonlyBufferCursor } from "../tools/readonly_cursor.js";
-import nacl from "tweetnacl";
 
 export const XSALSA20_POLY1305_NONCE_LENGTH = 24;
 
@@ -28,7 +27,7 @@ export function create_poly1305_encryption_strategy(
                 : nonce_strategy.strip(encrypted, header);
 
             // const nonce = nonce_strategy.strip(encrypted, header)
-            return nacl.secretbox.open(encrypted.data, nonce, secret_key);
+            return crypto_secretbox_open_easy(encrypted.data, nonce, secret_key);
         }
     }
 }
